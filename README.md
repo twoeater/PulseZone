@@ -203,6 +203,8 @@ Click a domain title to edit its settings. Click a record to open that file's re
 
 Domain and record hover text shows configured tips. Record tooltips also include the request hostname and effective settings. Hover over each `v/X` history entry to see the timestamp, protocol, status code, latency, and error. The dashboard polls the read-only status API every two seconds.
 
+**Alert Test**, to the left of the theme selector, queues a message such as `UP 120 Down 30 OFF 1` to every configured alert channel. Counts come from the current server state across all zones, regardless of search filters or collapsed groups; RETRYING, UNKNOWN, and MISSING are not included in these three counts. This manual test bypasses maintenance and does not change record `alerted_at`, history, or settings. The confirmation means queued, not delivered; channel delivery failures appear on the dashboard. No configured channels or a full queue produces an error.
+
 | API | Purpose |
 | --- | --- |
 | `GET /api/zones` | Settings, all records, and effective inherited values |
@@ -213,6 +215,7 @@ Domain and record hover text shows configured tips. Record tooltips also include
 | `POST /api/bulk-update` | Apply updates in one transaction |
 | `GET /api/status` | In-memory state/history, scan errors, and alert delivery status |
 | `POST /api/refresh` | Rescan zone files immediately; send `{}` |
+| `POST /api/alert-test` | Queue the current UP/DOWN/OFF summary to all alert channels; send `{}`. Returns 202 when queued, 400 for no channels/invalid input, 503 for a full queue |
 | `GET /healthz` | Process health, last scan time, and scan-error count |
 
 Mutation requests require `Content-Type: application/json`. Invalid values return 400, unknown IDs return 404, and duplicate record/IP pairs return 409. Timing fields, protocol, `https_insecure`, the four `http_allow_*` fields, and `maintenance` accept JSON `null` for inheritance. Record `enabled` accepts 0/1/null; zone `enabled` accepts only 0/1. Zone and record `https_insecure`, `http_allow_*`, and `maintenance` accept `true`/`false`/`null`. `alerted_at` cannot be edited through the API.

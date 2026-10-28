@@ -253,6 +253,12 @@ $('toggle-all-zones').addEventListener('click',()=>{
   updateFoldButton();renderStatus();
 });
 $('refresh').addEventListener('click',async()=>{const b=$('refresh');b.disabled=true;try{latest=await api('/api/refresh','POST',{});await load();inform('존 파일을 다시 읽었습니다.');}catch(e){inform(e.message);}finally{b.disabled=false;}});
+$('alert-test').addEventListener('click',async()=>{
+  const b=$('alert-test');if(b.disabled)return;b.disabled=true;b.textContent='보내는 중…';
+  try{const result=await api('/api/alert-test','POST',{});inform(`알림 테스트를 전송 대기열에 등록했습니다: ${result.message} (${result.channels.length}개 채널)`);}
+  catch(error){inform(`알림 테스트 실패: ${error.message}`);}
+  finally{b.disabled=false;b.textContent='Alert Test';}
+});
 function bulkValue(){const key=$('bulk-field').value;const zoneMode=Array.from(selected).some(k=>k.startsWith('z:'));const input=createInput(key,key==='enabled'?1:null,zoneMode);input.id='bulk-input';$('bulk-value').replaceChildren(input);}
 $('bulk').addEventListener('click',()=>{$('bulk-error').textContent='';bulkValue();$('bulk-editor').showModal();});
 $('bulk-field').addEventListener('change',bulkValue);$('close-bulk').addEventListener('click',()=>$('bulk-editor').close());

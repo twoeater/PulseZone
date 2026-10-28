@@ -195,6 +195,8 @@ ALERT_NTFY_TOKEN=
 
 도메인·레코드의 마우스오버는 tip을 표시하고, 레코드에는 실제 요청 호스트와 적용 설정을 함께 표시합니다. 각 `v/X`에 시각·프로토콜·상태코드·응답 시간이 있습니다. 화면은 2초마다 읽기 전용 상태 API를 조회합니다.
 
+화면 모드 선택 왼쪽의 **Alert Test**를 누르면 `UP 120 Down 30 OFF 1` 형식의 메시지를 설정된 모든 알림 채널에 보냅니다. 검색·접기 상태와 무관하게 서버의 전체 존을 집계하며 RETRYING·UNKNOWN·MISSING은 이 세 개수에 포함하지 않습니다. 수동 테스트는 maintenance와 관계없이 전송하고 레코드의 `alerted_at`·이력·설정은 변경하지 않습니다. 화면의 등록 안내는 전송 대기열 접수를 뜻하며 수신 완료를 뜻하지 않습니다. 채널별 전송 실패는 기존 오류 영역에 표시합니다. 채널 미설정·대기열 초과는 오류로 안내합니다.
+
 | API | 동작 |
 | --- | --- |
 | `GET /api/zones` | 관리 설정·전체 레코드·effective 상속 적용값 |
@@ -205,6 +207,7 @@ ALERT_NTFY_TOKEN=
 | `POST /api/bulk-update` | 트랜잭션으로 일괄 수정 |
 | `GET /api/status` | 메모리 상태·이력·스캔 오류·알림 전송 상태 |
 | `POST /api/refresh` | 즉시 파일 재스캔, 본문 `{}` |
+| `POST /api/alert-test` | 전체 UP/DOWN/OFF 요약을 모든 알림 채널에 전송 예약, 본문 `{}`. 접수 202, 채널 미설정·잘못된 입력 400, 대기열 초과 503 |
 | `GET /healthz` | 프로세스 응답·마지막 스캔·스캔 오류 수 |
 
 수정 API는 `Content-Type: application/json`을 요구합니다. 잘못된 값은 400, 없는 ID는 404, 중복 레코드·IP는 409입니다. 시간·protocol·`https_insecure`·네 `http_allow_*` 항목·`maintenance`는 JSON `null`로 상속을 지정할 수 있습니다. 레코드 enabled만 `null`을 허용하며 도메인은 0/1입니다. 존·레코드 `https_insecure`·`http_allow_*`·`maintenance`는 `true/false/null`을 허용하고 `alerted_at` 수정은 거부합니다.

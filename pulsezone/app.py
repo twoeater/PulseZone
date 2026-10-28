@@ -189,6 +189,24 @@ async def status(request):
                               "alerts": service.alerts.delivery, "dropped_alerts": service.alerts.dropped})
 
 
+async def alert_test(request):
+    service = request.app[SERVICE]
+    if await request.json() != {}:
+        raise ValueError("빈 JSON 객체 {}를 보내세요")
+    if not service.config.alerts:
+        raise ValueError("설정된 알림 채널이 없습니다. ALERT_* 설정을 확인하세요.")
+    counts = dict.fromkeys(("UP", "DOWN", "OFF"), 0)
+    for state in service.monitor.states.values():
+        if state.status in counts:
+            counts[state.status] += 1
+    text = "UP {UP} Down {DOWN} OFF {OFF}".format(**counts)
+    # A manual summary test must not change per-record alert timestamps or maintenance.
+    if not service.alerts.submit(text):
+        return web.json_response({"error": "알림 대기열이 가득 찼습니다. 잠시 후 다시 시도하세요."}, status=503)
+    return web.json_response({"ok": True, "message": text, "counts": counts,
+                              "channels": list(service.config.alerts)}, status=202)
+
+
 async def refresh(request):
     await request.app[SERVICE].refresh()
     return await status(request)
@@ -225,6 +243,7 @@ def create_app(config=None, probe=None):
         web.get("/api/zones/{zone:\\d+}/records", records), web.post("/api/zones/{zone:\\d+}/records", records),
         web.patch("/api/zones/{zone:\\d+}/records/{record:\\d+}", update_record),
         web.post("/api/bulk-update", bulk), web.get("/api/status", status),
+        web.post("/api/alert-test", alert_test),
         web.post("/api/refresh", refresh), web.get("/healthz", health),
         web.get("/", static), web.get("/static/{file}", static),
     ])

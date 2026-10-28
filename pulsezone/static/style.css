@@ -45,6 +45,8 @@
 :root .badge{display:inline-block;white-space:nowrap}
 
 .header-tools{display:flex;align-items:center;justify-content:flex-end;gap:18px}
+.header-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+#alert-test{padding:4px 8px;font-size:12px;white-space:nowrap}
 .theme-control{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;white-space:nowrap}
 .theme-control select{padding:4px 8px;min-width:80px}
 input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
