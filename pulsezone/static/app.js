@@ -94,7 +94,7 @@ function render(){
   const fragment=document.createDocumentFragment(), q=$('search').value.trim().toLowerCase(), show=$('show-missing').checked;
   statusNodes.clear();
   zonePanels.clear();
-  for(const zone of catalog.zones){
+  for(const zone of [...catalog.zones].sort((a,b)=>b.enabled-a.enabled)){
     const zoneMatch=[zone.display_name,zone.domain,zone.filename,zone.relative_path,zone.description].join(' ').toLowerCase().includes(q);
     const rows=zone.records.filter(r=>(show||r.effective.present)&&(zoneMatch||[r.record,r.ip,r.alias,r.description].join(' ').toLowerCase().includes(q)));
     if(!rows.length&&(!zoneMatch||(!zone.present&&!show)))continue;
