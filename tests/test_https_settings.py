@@ -79,8 +79,8 @@ def test_existing_database_migration_preserves_settings_and_is_idempotent(tmp_pa
         original_record = dict(db.execute('SELECT * FROM "zone:team/db.example.test"').fetchone())
     store = Store(path)
     try:
-        assert store.zone(1) == dict(original_zone, https_insecure=None)
-        assert store.records(1) == [dict(original_record, https_insecure=None, maintenance=False, alerted_at=None)]
+        assert store.zone(1) == dict(original_zone, https_insecure=None, maintenance=None)
+        assert store.records(1) == [dict(original_record, https_insecure=None, maintenance=None, alerted_at=None)]
         store.update_zone(1, {"https_insecure": True})
         store.update_record(1, 7, {"https_insecure": False})
         assert store.zone(1)["https_insecure"] is True

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 
 TIMINGS = ("interval", "timeout", "retry", "retry_delay")
-COMMON = set(TIMINGS) | {"enabled", "description", "tip", "protocol", "https_insecure"}
+COMMON = set(TIMINGS) | {"enabled", "description", "tip", "protocol", "https_insecure", "maintenance"}
 
 
 def positive(value: Any, name: str, integer: bool = False) -> Any:
@@ -50,7 +50,7 @@ def hostname(value: str, record: bool = False) -> str:
 def validate_patch(data: Any, is_zone: bool = False) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("JSON 객체가 필요합니다")
-    allowed = COMMON | ({"display_name", "domain"} if is_zone else {"record", "ip", "alias", "maintenance"})
+    allowed = COMMON | ({"display_name", "domain"} if is_zone else {"record", "ip", "alias"})
     if set(data) - allowed:
         raise ValueError("수정할 수 없는 필드: " + ", ".join(sorted(set(data) - allowed)))
     clean = dict(data)
@@ -65,12 +65,9 @@ def validate_patch(data: Any, is_zone: bool = False) -> Dict[str, Any]:
         elif name == "protocol":
             if value not in (None, "auto", "http", "https"):
                 raise ValueError("protocol은 auto/http/https/null 중 하나입니다")
-        elif name == "https_insecure":
+        elif name in ("https_insecure", "maintenance"):
             if value is not None and type(value) is not bool:
-                raise ValueError("https_insecure는 true/false/null 중 하나입니다")
-        elif name == "maintenance":
-            if type(value) is not bool:
-                raise ValueError("maintenance는 true/false 중 하나입니다")
+                raise ValueError(name + "는 true/false/null 중 하나입니다")
         elif name in ("domain", "record"):
             clean[name] = hostname(value, name == "record")
         elif name == "ip":
@@ -105,6 +102,7 @@ class Config:
     gotify_token: str = ""
     ntfy_token: str = ""
     https_insecure: bool = False
+    maintenance: bool = False
 
     @classmethod
     def from_env(cls, env_file: str = ".env") -> "Config":
@@ -124,10 +122,11 @@ class Config:
         cfg.web_host = env.get("WEB_HOST", cfg.web_host)
         cfg.protocol = env.get("CHECK_PROTOCOL", "auto")
         validate_patch({"protocol": cfg.protocol})
-        insecure = env.get("HTTPS_INSECURE", "false").strip().lower()
-        if insecure not in ("true", "false"):
-            raise ValueError("HTTPS_INSECURE는 true 또는 false여야 합니다")
-        cfg.https_insecure = insecure == "true"
+        for attr in ("https_insecure", "maintenance"):
+            value = env.get(attr.upper(), "false").strip().lower()
+            if value not in ("true", "false"):
+                raise ValueError(attr.upper() + "는 true 또는 false여야 합니다")
+            setattr(cfg, attr, value == "true")
         for channel in ("slack", "discord", "ntfy", "gotify", "custom"):
             url = env.get("ALERT_" + channel.upper(), "").strip()
             if url and (urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname):
@@ -139,7 +138,7 @@ class Config:
         return cfg
 
     def defaults(self) -> Dict[str, Any]:
-        return {key: getattr(self, key) for key in TIMINGS + ("protocol", "https_insecure")}
+        return {key: getattr(self, key) for key in TIMINGS + ("protocol", "https_insecure", "maintenance")}
 
 
 def effective(cfg: Config, zone: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:

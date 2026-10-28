@@ -86,6 +86,7 @@ class Monitor:
                           "identity": identity, "signature": signature, "generation": object()}
                 if old and old["signature"] == signature:
                     old.update(zone=zone, row=row)
+                    old["settings"]["maintenance"] = settings["maintenance"]
                     incoming[key] = old
                     continue
                 task = self.tasks.pop(key, None)
@@ -151,8 +152,10 @@ class Monitor:
             data = state.json()
             if state.first_failure is not None:
                 data["duration"] = time.monotonic() - state.first_failure
-            row = self.targets[key]["row"]
-            data.update(maintenance=bool(row.get("maintenance")), alerted_at=row.get("alerted_at"))
+            target = self.targets[key]
+            row = target["row"]
+            data.update(maintenance=effective(self.config, target["zone"], row)["maintenance"],
+                        alerted_at=row.get("alerted_at"))
             result[key] = data
         return result
 

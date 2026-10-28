@@ -48,7 +48,7 @@ try {
   }
 } catch (_) {}
 const labels={display_name:'표시 이름',domain:'접속 도메인',record:'레코드 (@ = apex / 빈 값 = IP 직접)',ip:'IPv4',alias:'레코드 표시 이름',interval:'interval · 초',timeout:'timeout · 초',retry:'retry · 실패 횟수',retry_delay:'retry_delay · 초',enabled:'on/off',protocol:'프로토콜',https_insecure:'HTTPS 인증서 검증 생략 (https_insecure)',maintenance:'maintenance · 같은 날 중복 알림 생략',description:'설명',tip:'마우스오버 tip'};
-const inherited=['interval','timeout','retry','retry_delay','protocol','https_insecure'];
+const inherited=['interval','timeout','retry','retry_delay','protocol','https_insecure','maintenance'];
 async function api(path, method='GET', body) {
   const options={method,cache:'no-store'};
   if(body!==undefined){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(body);}
@@ -62,7 +62,7 @@ function button(text, action, cls='link'){const b=make('button',text,cls);b.type
 function selection(key,label){const box=make('input');box.type='checkbox';box.checked=selected.has(key);box.setAttribute('aria-label',label);box.addEventListener('change',()=>{if(box.checked)selected.add(key);else selected.delete(key);updateSelection();});return box;}
 function updateSelection(){
   $('bulk').disabled=!selected.size;$('bulk').textContent=`선택 항목 설정 (${selected.size})`;
-  $('bulk-maintenance').disabled=!catalog.record_defaults||Array.from(selected).some(k=>k.startsWith('z:'));
+  $('bulk-maintenance').disabled=!('maintenance' in catalog.defaults);
   if($('bulk-maintenance').disabled&&$('bulk-field').value==='maintenance')$('bulk-field').value='interval';
 }
 function date(value){return value?new Date(value*1000).toLocaleString():'—';}
@@ -186,23 +186,23 @@ function createInput(key,value,zoneMode){
       enabled:[['','상속 (도메인 설정)'],['1','on'],['0','off']],
       protocol:[['','상속'],['auto','HTTPS 우선 / HTTP 대체'],['http','HTTP'],['https','HTTPS']],
       https_insecure:[['','상속'],['false','false · 인증서 검증'],['true','true · 검증 생략 (curl -k)']],
-      maintenance:[['false','false · 일반 알림'],['true','true · 같은 날 중복 알림 생략']],
+      maintenance:[['','상속'],['false','false · 일반 알림'],['true','true · 같은 날 중복 알림 생략']],
     }[key];
     for(const [val,text] of choices){if(zoneMode&&key==='enabled'&&val==='')continue;const option=make('option',text);option.value=val;input.append(option);}
   }else if(key==='description'||key==='tip'){input=make('textarea');input.maxLength=4000;}
   else {input=make('input');input.type=inherited.includes(key)?'number':'text';if(input.type==='number'){input.min=key==='retry'?'1':'0.001';input.step=key==='retry'?'1':'any';input.placeholder='비워두면 상속';}else input.maxLength=4000;}
-  input.name=key;input.value=key==='maintenance'?String(value??false):value===null||value===undefined?'':String(value);return input;
+  input.name=key;input.value=value===null||value===undefined?'':String(value);return input;
 }
 function fields(item,zoneMode,zone){
   $('fields').replaceChildren();
-  const keys=zoneMode?['display_name','domain',...inherited.slice(0,4),'enabled',...inherited.slice(4),'description','tip']:['record','ip','alias',...inherited.slice(0,4),'enabled',...inherited.slice(4),'maintenance','description','tip'];
+  const keys=zoneMode?['display_name','domain',...inherited.slice(0,4),'enabled',...inherited.slice(4),'description','tip']:['record','ip','alias',...inherited.slice(0,4),'enabled',...inherited.slice(4),'description','tip'];
   for(const key of keys){
     if(key==='https_insecure'&&!('https_insecure' in catalog.defaults))continue;
-    if(key==='maintenance'&&!catalog.record_defaults)continue;
+    if(key==='maintenance'&&!('maintenance' in catalog.defaults))continue;
     const label=make('label',labels[key]);const input=createInput(key,item[key],zoneMode);input.id=`edit-${key}`;if(key==='domain'||key==='ip')input.required=true;label.append(input);
     if(inherited.includes(key)){const parent=zoneMode?catalog.defaults[key]:zone.effective[key];label.append(make('small',`상속값: ${parent} / 적용값: ${item[key]??parent}`));}
     if(key==='enabled'&&!zoneMode)label.append(make('small',`상위 도메인: ${zone.enabled?'on':'off (모든 레코드 중지)'}`));
-    if(key==='maintenance')label.append(make('small','점검은 계속합니다. 오늘 13시 이후 마지막 알림이 오늘 13시 전이면 자동 해제됩니다 (서버 시간).'));
+    if(key==='maintenance')label.append(make('small','점검은 계속합니다. 오늘 13시 이후 마지막 알림이 오늘 13시 전인 레코드는 false로 고정됩니다 (서버 시간).'));
     $('fields').append(label);
   }
   $('form-error').textContent='';
@@ -211,7 +211,7 @@ function updateAlertInfo(){
   const info=$('record-alert-info');info.hidden=editing?.type!=='record'||editing.recordId===null;
   if(info.hidden)return;
   const row=latest.records?.[`${editing.zoneId}:${editing.recordId}`]||zoneById(editing.zoneId)?.records.find(r=>r.id===editing.recordId);
-  info.textContent=`마지막 알림 발생 (alerted_at): ${row?.alerted_at||'없음'} · 현재 maintenance: ${row?.maintenance?'true':'false'}`;
+  info.textContent=`마지막 알림 발생 (alerted_at): ${row?.alerted_at||'없음'} · 현재 maintenance: ${(row?.effective?.maintenance??row?.maintenance)?'true':'false'}`;
 }
 function showEditor(){updateAlertInfo();if(!$('editor').open)$('editor').showModal();}
 function openZone(id){const zone=zoneById(id);editing={zoneId:id,type:'zone'};$('editor-title').textContent=`도메인 설정 · ${zone.filename}`;$('editor-help').textContent='빈 점검 설정은 환경변수를 따릅니다. domain은 실제 HTTP Host와 HTTPS SNI에 사용됩니다.';$('record-picker').replaceChildren();fields(zone,true,zone);showEditor();}

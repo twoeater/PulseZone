@@ -1,4 +1,5 @@
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -14,8 +15,17 @@ SETTINGS_SQL = """
     retry INTEGER CHECK(retry >= 1), retry_delay REAL CHECK(retry_delay > 0),
     description TEXT NOT NULL DEFAULT '', tip TEXT NOT NULL DEFAULT '',
     protocol TEXT CHECK(protocol IN ('auto', 'http', 'https')),
-    https_insecure INTEGER CHECK(https_insecure IN (0,1))
+    https_insecure INTEGER CHECK(https_insecure IN (0,1)),
+    maintenance INTEGER CHECK(maintenance IN (0,1))
 """
+
+RECORD_SQL = """ (
+    id INTEGER PRIMARY KEY, record TEXT NOT NULL, ip TEXT NOT NULL,
+    alias TEXT, enabled INTEGER CHECK(enabled IN (0,1)),
+    source TEXT NOT NULL CHECK(source IN ('file','manual')),
+    present INTEGER NOT NULL DEFAULT 1 CHECK(present IN (0,1)),
+    alerted_at TEXT,
+""" + SETTINGS_SQL + ", UNIQUE(record,ip))"
 
 
 class Store:
@@ -42,18 +52,39 @@ class Store:
     def _migrate_columns(self) -> None:
         tables = ["zones"] + [row[0] for row in self.db.execute("SELECT table_name FROM zones")]
         missing = []
+        rebuild = []
         for table in tables:
-            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(" + quote(table) + ")")}
-            additions = {"https_insecure": "INTEGER CHECK(https_insecure IN (0,1))"}
+            columns = {row["name"]: row for row in self.db.execute("PRAGMA table_info(" + quote(table) + ")")}
+            additions = {"https_insecure": "INTEGER CHECK(https_insecure IN (0,1))",
+                         "maintenance": "INTEGER CHECK(maintenance IN (0,1))"}
             if table != "zones":
-                additions.update(maintenance="INTEGER NOT NULL DEFAULT 0 CHECK(maintenance IN (0,1))",
-                                 alerted_at="TEXT")
+                additions["alerted_at"] = "TEXT"
+                old = columns.get("maintenance")
+                if old is not None and (old["notnull"] or old["dflt_value"] not in (None, "NULL")):
+                    rebuild.append(table)
             missing.extend((table, name, sql) for name, sql in additions.items() if name not in columns)
-        if missing:
+        if missing or rebuild:
             with self.db:
                 self.db.execute("BEGIN")
                 for table, name, sql in missing:
                     self.db.execute("ALTER TABLE " + quote(table) + " ADD COLUMN " + quote(name) + " " + sql)
+                for table in rebuild:
+                    self._make_maintenance_nullable(table)
+
+    def _make_maintenance_nullable(self, table: str) -> None:
+        # SQLite versions shipped with Python 3.9 cannot ALTER a column's nullability.
+        # Copy explicit values unchanged; only new records default to inheritance.
+        temporary = "pulsezone:migration:" + uuid.uuid4().hex
+        objects = [row[0] for row in self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE tbl_name=? AND type IN ('index','trigger') AND sql IS NOT NULL",
+            (table,))]
+        columns = ",".join(quote(row["name"]) for row in self.db.execute("PRAGMA table_info(" + quote(table) + ")"))
+        self.db.execute("CREATE TABLE " + quote(temporary) + RECORD_SQL)
+        self.db.execute("INSERT INTO " + quote(temporary) + " (" + columns + ") SELECT " + columns + " FROM " + quote(table))
+        self.db.execute("DROP TABLE " + quote(table))
+        self.db.execute("ALTER TABLE " + quote(temporary) + " RENAME TO " + quote(table))
+        for sql in objects:
+            self.db.execute(sql)
 
     @staticmethod
     def _settings(row) -> Dict[str, Any]:
@@ -89,14 +120,7 @@ class Store:
             "INSERT INTO zones(filename,relative_path,table_name,display_name,domain) VALUES(?,?,?,?,?)",
             (filename, relative, table_name, filename, filename),
         )
-        self.db.execute("CREATE TABLE " + quote(table_name) + """ (
-            id INTEGER PRIMARY KEY, record TEXT NOT NULL, ip TEXT NOT NULL,
-            alias TEXT, enabled INTEGER CHECK(enabled IN (0,1)),
-            source TEXT NOT NULL CHECK(source IN ('file','manual')),
-            present INTEGER NOT NULL DEFAULT 1 CHECK(present IN (0,1)),
-            maintenance INTEGER NOT NULL DEFAULT 0 CHECK(maintenance IN (0,1)),
-            alerted_at TEXT,
-        """ + SETTINGS_SQL + ", UNIQUE(record,ip))")
+        self.db.execute("CREATE TABLE " + quote(table_name) + RECORD_SQL)
         return self.zone(cursor.lastrowid)
 
     def sync(self, parsed: Dict[str, Iterable[Tuple[str, str]]], seen: Iterable[str]) -> None:

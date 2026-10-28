@@ -46,6 +46,7 @@ Copy-Item .env.example .env
 | `RETRY_DELAY` | `10` | 실패 후 다음 점검까지 대기, 초 |
 | `CHECK_PROTOCOL` | `auto` | `auto`, `http`, `https` |
 | `HTTPS_INSECURE` | `false` | `true`이면 curl `-k`처럼 HTTPS 인증서 검증 생략. `true` / `false` |
+| `MAINTENANCE` | `false` | 전체 존·레코드의 당일 중복 알림 생략 기본값. `true` / `false` |
 | `DATABASE_PATH` | `./data/pulsezone.sqlite3` | SQLite 설정 파일 |
 | `WEB_HOST` | `0.0.0.0` | 웹 바인딩 주소 |
 | `WEB_PORT` | `8080` | 웹 포트 |
@@ -72,7 +73,7 @@ Copy-Item .env.example .env
 - `$TTL`, 생략된 소유자명, 복수 IP, 괄호·주석·절대 이름, `$GENERATE`를 처리합니다. SOA/NS 없는 A 조각과 TTL 없는 조각도 읽으며 생략된 기본 TTL은 파싱에만 쓰는 300초입니다.
 - `$INCLUDE`는 **포함하는 파일의 디렉터리 기준**으로 해석하고 존 루트 안에 있어야 합니다. origin·소유자·TTL 상속 및 복원을 지원합니다. 순환 참조와 32단계 이상 중첩은 오류로 표시합니다.
 - UTF-8/UTF-8 BOM 파일을 지원합니다. 확장자와 무관하게 일반 파일을 대상으로 하므로, include 조각도 독립 파일로 해석 가능한 경우 별도 등록됩니다. 심볼릭 링크는 루트 스캔에서 제외합니다.
-- 설정 우선순위는 **레코드 → 도메인 → 환경변수**입니다. NULL/빈 시간·프로토콜·`https_insecure` 필드는 상속입니다. 단, **도메인 off는 모든 하위 레코드를 중지**합니다.
+- 설정 우선순위는 **레코드 → 도메인 → 환경변수**입니다. NULL/빈 시간·프로토콜·`https_insecure`·`maintenance` 필드는 상속입니다. 단, **도메인 off는 모든 하위 레코드를 중지**합니다.
 
 ### 다시 읽을 때
 
@@ -98,31 +99,37 @@ RETRY=10이면 10·20·30…번째 연속 실패에 장애 알림을 반복합�
 
 ### 마지막 알림과 maintenance
 
-각 파일의 레코드 테이블에 다음 컬럼을 저장합니다. 기존 DB는 시작할 때 자동 확장하며 존 파일과 기존 설정을 보존합니다.
+각 파일의 레코드 테이블에 다음 컬럼을 저장합니다. `maintenance`는 존 관리 테이블에도 저장하며, 기본값은 `.env`의 `MAINTENANCE=false`입니다. 기존 DB는 시작할 때 자동 확장하며 존 파일과 기존 설정을 보존합니다.
 
 | 컬럼 | 기본값 | 의미 |
 | --- | --- | --- |
 | `alerted_at` | `NULL` | 마지막 장애·복구 알림 발생 시각. 시간대 오프셋을 포함한 ISO 8601 TEXT, 예: `2026-10-28T14:30:00.000000+09:00`. API에서는 읽기 전용 |
-| `maintenance` | `false` | 레코드별 당일 중복 알림 생략. SQLite에는 0/1, API에는 JSON boolean으로 저장·표시 |
+| `maintenance` | `NULL` | 존·레코드별 당일 중복 알림 생략. SQLite에는 0/1/NULL, API에는 JSON boolean/null. NULL은 상위 설정 상속 |
+
+`.env`에서 `MAINTENANCE=true`로 전체 기본값을 켤 수 있습니다. 우선순위는 **레코드 → 존 → 환경변수**이며, 하위의 명시적 `false`는 상위 `true`보다 우선합니다. 기존 버전의 레코드 `true/false` 값과 `alerted_at`은 그대로 보존합니다. 기존 항목에도 전역 기본값을 적용하려면 웹 일괄 설정에서 maintenance를 `상속`으로 저장하세요. 새 존·레코드는 자동으로 상속합니다.
 
 `alerted_at`은 알림 발생 조건을 충족하고 전송 대기열에 정상 등록됐을 때만 갱신합니다. 채널이 없거나 대기열이 가득 찼거나 maintenance로 생략한 경우, 일반 점검·조회·재스캔에서는 갱신하지 않습니다. **알림 발생 시각이며 수신 성공 시각은 아닙니다.** 채널별 전송 성공·실패는 기존 알림 전송 상태에서 확인합니다. 여러 채널과 채널별 전송 재시도는 하나의 발생 시각을 공유합니다.
 
-`maintenance=true`이고 마지막 알림의 날짜가 오늘이면 해당 레코드의 추가 **장애·복구 알림 모두** 건너뜁니다. 점검·실패 카운트·메모리 이력은 계속 갱신합니다. 마지막 알림이 없거나 다른 날짜이면 기존 RETRY/복구 조건에서 알림을 보내고 `alerted_at`을 갱신합니다. maintenance 설정과 마지막 알림 시각은 재시작 후에도 유지됩니다.
+상속을 계산한 실제 적용값이 `maintenance=true`이고 마지막 알림의 날짜가 오늘이면 해당 레코드의 추가 **장애·복구 알림 모두** 건너뜁니다. 점검·실패 카운트·메모리 이력은 계속 갱신합니다. 마지막 알림이 없거나 다른 날짜이면 기존 RETRY/복구 조건에서 알림을 보내고 `alerted_at`을 갱신합니다. maintenance 설정과 마지막 알림 시각은 재시작 후에도 유지됩니다.
 
 자동 해제는 **서버 로컬 시간대**로 아래 순서대로 처리합니다. 한국 시간으로 운영할 컨테이너는 `TZ=Asia/Seoul` 등 실행 환경의 시간대도 맞춰 주세요.
 
 ```python
 cutoff = now.replace(hour=13, minute=0, second=0, microsecond=0)
-if record.maintenance and record.alerted_at is not None:
+active = effective_maintenance(env, zone, record)
+if active and record.alerted_at is not None:
     if now >= cutoff and record.alerted_at < cutoff:
-        record.maintenance = False
-if record.maintenance and record.alerted_at is not None and record.alerted_at.date() == now.date():
+        record.maintenance = False  # 레코드에 명시적 false 저장
+        active = False
+if active and record.alerted_at is not None and record.alerted_at.date() == now.date():
     return  # 알림만 생략, 점검 루프는 계속 실행
 ```
 
 예를 들어 오늘 10시 알림은 오늘 13시부터 자동 해제 대상이고, 오늘 14시 알림은 오늘 유지하다 다음 날 13시 조건에서 해제됩니다. 자정 이후 새 알림이 생겨도 그 시각이 13시 전이면 같은 날 13시에 해제됩니다. `alerted_at=NULL`은 자동 해제 대상이 아닙니다. 알림 직전·설정 반영·시작 시점과 30초 주기로 확인하므로, 점검 간격이 길거나 OFF/MISSING인 항목도 해제됩니다. 서버가 꺼져 시각을 놓친 항목도 재시작 후 같은 조건으로 처리합니다.
 
-레코드 편집 창에서 마지막 알림 시각과 현재 maintenance 상태를 확인하고 `true/false`를 선택할 수 있습니다. 여러 레코드를 선택한 일괄 설정도 지원합니다. 이 옵션은 도메인·환경변수에서 상속하지 않으며, 도메인 선택이 섞이면 maintenance 일괄 설정은 비활성화됩니다. 유지 중인 레코드는 점검 결과에 `MAINT`로 표시합니다.
+자동 해제는 해당 레코드만 명시적 `false`로 저장합니다. 상위 존이나 `.env`가 `true`여도 다시 켜지지 않으며 다른 레코드의 설정에는 영향을 주지 않습니다. 다시 상위 설정을 따르게 하려면 해당 레코드를 `상속`으로 복원하세요. 단, 알림 시각이 여전히 자동 해제 조건에 해당하면 즉시 다시 해제됩니다.
+
+도메인·레코드 편집과 혼합 일괄 설정에서 `상속/true/false`를 선택할 수 있습니다. 레코드 편집 창에는 마지막 알림 시각과 실제 적용 상태가 표시되며, 유지 중인 레코드는 점검 결과에 `MAINT`로 표시합니다. `상속값으로 복원` 버튼에도 maintenance가 포함됩니다.
 
 ```text
 레코드표시명.도메인표시명(IP)
@@ -176,7 +183,7 @@ ALERT_NTFY_TOKEN=
 | `POST /api/refresh` | 즉시 파일 재스캔, 본문 `{}` |
 | `GET /healthz` | 프로세스 응답·마지막 스캔·스캔 오류 수 |
 
-수정 API는 `Content-Type: application/json`을 요구합니다. 잘못된 값은 400, 없는 ID는 404, 중복 레코드·IP는 409입니다. 시간·protocol은 JSON `null`로 상속을 지정할 수 있습니다. 레코드 enabled만 `null`을 허용하며 도메인은 0/1입니다. 레코드 `maintenance`는 `true/false`만 허용하고 `alerted_at` 수정은 거부합니다.
+수정 API는 `Content-Type: application/json`을 요구합니다. 잘못된 값은 400, 없는 ID는 404, 중복 레코드·IP는 409입니다. 시간·protocol은 JSON `null`로 상속을 지정할 수 있습니다. 레코드 enabled만 `null`을 허용하며 도메인은 0/1입니다. 존·레코드 `maintenance`는 `true/false/null`을 허용하고 `alerted_at` 수정은 거부합니다.
 
 ```json
 {"operations":[

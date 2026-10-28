@@ -55,14 +55,18 @@ class Service:
     def save_alert_state(self, zone, row, patch):
         self.store.save_alert_state(zone, row, patch)
         row.update(patch)
-        self.public_records[(zone["id"], row["id"])].update(patch)
+        public = self.public_records[(zone["id"], row["id"])]
+        public.update(patch)
+        public["effective"] = effective(self.config, zone, row)
         self.revision += 1
 
     def emit_alert(self, target, text):
         zone, row, now = target["zone"], target["row"], self.now()
-        if expired(row, now):
+        active = effective(self.config, zone, row)["maintenance"]
+        if expired(row, now, enabled=active):
             self.save_alert_state(zone, row, {"maintenance": False})
-        if suppressed(row, now):
+            active = False
+        if suppressed(row, now, enabled=active):
             return
         # No await between accepting the event and persisting its timestamp.
         # This records an alert trigger, not a webhook delivery receipt.
@@ -73,7 +77,7 @@ class Service:
         now = self.now()
         for zone in self.catalog:
             for row in zone["records"]:
-                if expired(row, now):
+                if expired(row, now, enabled=effective(self.config, zone, row)["maintenance"]):
                     self.save_alert_state(zone, row, {"maintenance": False})
 
     async def _maintenance(self):
@@ -139,7 +143,7 @@ async def errors(request, handler):
 async def catalog(request):
     service = request.app[SERVICE]
     return web.json_response({"zones": service.public_catalog, "defaults": service.config.defaults(),
-                              "record_defaults": {"maintenance": False}, "revision": service.revision})
+                              "record_defaults": {"maintenance": None}, "revision": service.revision})
 
 
 async def update_zone(request):

@@ -40,12 +40,11 @@ def test_calendar_rules(now, last, expire, mute):
     assert not expired(row, at(now)) and not suppressed(row, at(now))
 
 
-@pytest.mark.parametrize("value", [None, 0, 1, "true", "false", {}, []])
-def test_maintenance_requires_boolean_and_is_record_only(value):
-    with pytest.raises(ValueError):
-        validate_patch({"maintenance": value})
-    with pytest.raises(ValueError):
-        validate_patch({"maintenance": True}, is_zone=True)
+@pytest.mark.parametrize("value", [0, 1, "true", "false", {}, []])
+def test_maintenance_requires_boolean_or_null(value):
+    for is_zone in (True, False):
+        with pytest.raises(ValueError):
+            validate_patch({"maintenance": value}, is_zone=is_zone)
     with pytest.raises(ValueError):
         validate_patch({"alerted_at": "2026-10-28T10:00:00+09:00"})
 
@@ -57,7 +56,7 @@ def test_alert_columns_preserved_on_sync_and_reopen(tmp_path):
     store.sync(parsed, parsed)
     zone = store.zones()[0]
     row = store.records(zone["id"])[0]
-    assert row["maintenance"] is False and row["alerted_at"] is None
+    assert row["maintenance"] is None and row["alerted_at"] is None
     store.update_record(zone["id"], row["id"], {"maintenance": True})
     stamp = "2026-10-28T14:00:00.000000+09:00"
     store.save_alert_state(zone, row, {"alerted_at": stamp})
@@ -226,9 +225,9 @@ def test_monitor_triggers_maintenance_suppression_midnight_expiry_and_recovery(t
                 await checked(True)
                 assert len(received) == 5
                 assert svc.store.records(z)[0]["maintenance"] is True  # Last alert is AFTER 13:00.
-                for patch in ({"maintenance": "true"}, {"maintenance": None}, {"alerted_at": None}):
+                for patch in ({"maintenance": "true"}, {"alerted_at": None}):
                     async with client.patch(base + f"/api/zones/{z}/records/{r}", json=patch) as response:
                         assert response.status == 400
                 async with client.patch(base + f"/api/zones/{z}", json={"maintenance": True}) as response:
-                    assert response.status == 400
+                    assert response.status == 200
     asyncio.run(run())
