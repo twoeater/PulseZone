@@ -1,0 +1,32 @@
+name: Test
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pulsezone:test .
+      - name: Container health and read-only zone mount
+        run: |
+          docker run -d --name pulsezone -p 8080:8080 --read-only --tmpfs /tmp -v "$PWD/examples/zones:/zones:ro" -v pulsezone-data:/app/data pulsezone:test
+          for attempt in $(seq 1 20); do
+            if curl --fail http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
+          done
+          curl --fail http://127.0.0.1:8080/api/zones
+          docker inspect --format='{{.Config.User}}' pulsezone
+      - if: always()
+        run: docker logs pulsezone; docker rm -f pulsezone

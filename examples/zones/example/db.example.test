@@ -1,0 +1,11 @@
+; Safe loopback examples. Change management domain to example.test in the UI.
+$ORIGIN example.test.
+$TTL 300
+@   IN SOA ns.example.test. hostmaster.example.test. (
+    2026102801 3600 600 86400 300 )
+@   IN NS ns.example.test.
+@   IN A 127.0.0.1
+www IN A 127.0.0.1
+    IN A 127.0.0.2
+api IN A 127.0.0.1
+*   IN A 127.0.0.1

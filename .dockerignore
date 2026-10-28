@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+data
+zones
+output
+.playwright-cli
+__pycache__
+.pytest_cache
+*.egg-info
+tests

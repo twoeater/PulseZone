@@ -1,0 +1,22 @@
+[Unit]
+Description=PulseZone DNS HTTP Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pulsezone
+Group=pulsezone
+WorkingDirectory=/opt/pulsezone
+ExecStart=/opt/pulsezone/.venv/bin/python -m pulsezone --env-file /opt/pulsezone/.env
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/pulsezone/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

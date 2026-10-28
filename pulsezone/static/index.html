@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PulseZone · DNS HTTP 모니터</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <script src="/static/app.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header><div><h1><span class="brand-dot">●</span> PulseZone</h1><p>DNS 존 기반 HTTP 모니터링</p></div><div class="header-tools"><div id="summary" class="status-counts" aria-live="polite">불러오는 중…</div><label class="theme-control">화면<select id="theme-mode" aria-label="화면 모드"><option value="system">시스템</option><option value="light">라이트</option><option value="dark">다크</option></select></label></div></header>
+  <main>
+    <section class="toolbar" aria-label="모니터링 도구">
+      <input id="search" type="search" placeholder="도메인 · 레코드 · IP 검색" aria-label="도메인 레코드 IP 검색">
+      <label><input id="show-missing" type="checkbox"> 원본 소실 항목 표시</label>
+      <button id="refresh">존 파일 다시 읽기</button>
+      <button id="toggle-all-zones" type="button" disabled>모두 접기</button>
+      <button id="bulk" disabled>선택 항목 설정 (0)</button>
+      <button id="clear-selection">선택 해제</button>
+    </section>
+    <div class="meta"><span id="scan-time">아직 스캔하지 않았습니다</span><span>v 정상 · X 실패 · OFF 중지 · MISSING 원본 소실 / 2초마다 갱신</span></div>
+    <div id="notice" role="status"></div>
+    <div id="errors" role="alert"></div>
+    <div id="groups"></div>
+    <footer>점검 이력은 메모리에만 보관되며 재시작하면 초기화됩니다. 도메인·레코드 이름을 눌러 설정을 편집하세요.</footer>
+  </main>
+  <dialog id="editor">
+    <div class="dialog-head"><h2 id="editor-title"></h2></div>
+    <p id="editor-help"></p>
+    <p id="record-alert-info" hidden></p>
+    <div id="record-picker"></div>
+    <form id="edit-form"><div id="fields" class="fields"></div><p id="form-error" role="alert"></p><div class="actions"><button type="button" id="inherit">상속값으로 복원</button><button type="button" id="close-editor" aria-label="편집 창 닫기">닫기</button><button type="submit" class="primary">저장</button></div></form>
+  </dialog>
+  <dialog id="bulk-editor">
+    <div class="dialog-head"><h2>선택 항목 일괄 설정</h2><button id="close-bulk">닫기</button></div>
+    <p>선택한 도메인과 레코드에 동일한 값을 적용합니다. 도메인 off는 하위 전체를 중지합니다.</p>
+    <form id="bulk-form"><label>설정 항목<select id="bulk-field"><option value="interval">interval</option><option value="timeout">timeout</option><option value="retry">retry</option><option value="retry_delay">retry_delay</option><option value="enabled">on/off</option><option value="protocol">protocol</option><option id="bulk-https-insecure" value="https_insecure" disabled>https_insecure · HTTPS 인증서 검증 생략</option><option id="bulk-maintenance" value="maintenance" disabled>maintenance · 레코드만 선택 가능</option></select></label><label>적용할 값<span id="bulk-value"></span></label><p id="bulk-error" role="alert"></p><button type="submit" class="primary">선택 항목에 저장</button></form>
+  </dialog>
+</body>
+</html>
