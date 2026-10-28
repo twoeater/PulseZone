@@ -4,7 +4,7 @@ from collections import deque
 from typing import Any, Dict
 
 from .alerts import message
-from .config import effective
+from .config import HTTP_STATUS_SETTINGS, effective
 from .probe import Probe, Result
 
 
@@ -79,7 +79,8 @@ class Monitor:
             for row in zone["records"]:
                 key = self.key(zone["id"], row["id"])
                 settings = effective(self.config, zone, row)
-                identity = (settings["host"], row["ip"], settings["protocol"], settings["https_insecure"])
+                identity = (settings["host"], row["ip"], settings["protocol"], settings["https_insecure"]) + tuple(
+                    settings[name] for name in HTTP_STATUS_SETTINGS)
                 signature = identity + tuple(settings[k] for k in ("interval", "timeout", "retry", "retry_delay", "enabled", "present"))
                 old = self.targets.get(key)
                 target = {"zone": zone, "row": row, "settings": settings,
@@ -119,6 +120,7 @@ class Monitor:
     async def _run(self, key, target):
         settings = target["settings"]
         state = self.states[key]
+        allowed_classes = tuple(group for group, name in enumerate(HTTP_STATUS_SETTINGS, 2) if settings[name])
         while True:
             async with self.semaphore:
                 if self.targets.get(key) is not target:
@@ -128,7 +130,7 @@ class Monitor:
                 try:
                     result = await self.probe.check(settings["host"], target["row"]["ip"],
                                                     settings["protocol"], settings["timeout"],
-                                                    settings["https_insecure"])
+                                                    settings["https_insecure"], allowed_classes)
                 except Exception as exc:
                     result = Result(False, settings["protocol"], None,
                                     (time.monotonic() - started) * 1000, "점검 오류: " + type(exc).__name__)

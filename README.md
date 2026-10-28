@@ -50,6 +50,10 @@ Process environment variables take precedence over `.env`. Environment changes r
 | `RETRY_DELAY` | `10` | Delay in seconds after a failed check |
 | `CHECK_PROTOCOL` | `auto` | `auto`, `http`, or `https` |
 | `HTTPS_INSECURE` | `false` | Skip HTTPS certificate verification, like curl `-k`; `true` or `false` |
+| `HTTP_ALLOW_2XX` | `true` | Treat HTTP 200–299 as healthy |
+| `HTTP_ALLOW_3XX` | `true` | Treat HTTP 300–399 as healthy |
+| `HTTP_ALLOW_4XX` | `false` | Treat HTTP 400–499 as healthy |
+| `HTTP_ALLOW_5XX` | `false` | Treat HTTP 500–599 as healthy |
 | `MAINTENANCE` | `false` | Global default for suppressing additional alerts on the same calendar day; `true` or `false` |
 | `DATABASE_PATH` | `./data/pulsezone.sqlite3` | SQLite configuration database |
 | `WEB_HOST` | `0.0.0.0` | Web server bind address |
@@ -77,7 +81,7 @@ Time values must be positive and may be fractional. `RETRY` must be an integer o
 - The parser supports `$TTL`, omitted owner names, multiple IPs per owner, parentheses, comments, absolute names, and `$GENERATE`. A-record fragments without SOA/NS or TTL declarations are accepted; an omitted TTL uses 300 seconds for parsing only.
 - `$INCLUDE` paths are relative to **the including file's directory** and must remain within the zone root. Origin, owner, and TTL context is inherited and restored. Cycles and nesting at the 32-level limit are reported as errors.
 - UTF-8 and UTF-8 BOM files are supported. Regular files are scanned regardless of extension, so an include fragment can also be registered independently if it parses on its own. Symbolic links are excluded from the scan.
-- Settings resolve in this order: **record → zone → environment**. NULL/empty timing, protocol, `https_insecure`, and `maintenance` values inherit from their parent. A disabled domain stops all its records, including records explicitly enabled individually.
+- Settings resolve in this order: **record → zone → environment**. NULL/empty timing, protocol, `https_insecure`, `http_allow_2xx`/`3xx`/`4xx`/`5xx`, and `maintenance` values inherit from their parent. A disabled domain stops all its records, including records explicitly enabled individually.
 
 ### Rescanning
 
@@ -91,15 +95,31 @@ Editing a record name or IP in the web interface converts that row into a **manu
 
 Each check connects directly to the row's IP while using the configured hostname for HTTP Host and HTTPS SNI. Certificate chains, hostnames, and validity periods are verified by default. Connections are not shared between different target IPs, and system HTTP proxy environment variables are not used.
 
-With `https_insecure=true`, verification is skipped as with curl `-k`. Expired, self-signed, or hostname-mismatched certificates can pass if the HTTPS response is 200–399. Encryption, Host/SNI, and IP pinning remain in use. Connection failures, timeouts, and unsuccessful HTTP statuses still fail. In `auto` mode this setting affects the HTTPS attempt only; it does not affect HTTP checks or alert webhook TLS settings.
+With `https_insecure=true`, verification is skipped as with curl `-k`. Expired, self-signed, or hostname-mismatched certificates can pass if the HTTPS response belongs to an allowed status class. Encryption, Host/SNI, and IP pinning remain in use. Connection failures, timeouts, and disallowed HTTP statuses still fail. In `auto` mode this setting affects the HTTPS attempt only; it does not affect HTTP checks or alert webhook TLS settings.
 
 The environment default is `HTTPS_INSECURE=false`. Zone, record, and bulk editors offer inherit, `false` (verify), and `true` (skip verification). The API accepts `{"https_insecure": true}`, `false`, or `null`; `null` means inherit. Existing databases gain the column automatically at startup without losing settings.
 
-Checks use `GET /`. **HTTP 200–399 is healthy**. Redirects are not followed and response bodies are not stored. Ports are fixed at HTTP 80 and HTTPS 443; custom ports and paths are not currently configurable.
+Checks use `GET /`. **By default, HTTP 2xx and 3xx are healthy; 4xx and 5xx fail.** Each class can be allowed or rejected independently. Redirects are not followed and response bodies are not stored. Ports are fixed at HTTP 80 and HTTPS 443; custom ports and paths are not currently configurable.
 
 `auto` tries HTTPS first and falls back to HTTP on failure. A success with either protocol counts as one successful check. An invalid HTTPS certificate can therefore still result in UP if HTTP succeeds; select `https` to require HTTPS to pass. With `TIMEOUT=10`, both attempts together can take about 20 seconds. The next interval starts after the check finishes.
 
 With `RETRY=10`, outage alerts repeat on the 10th, 20th, 30th, and subsequent multiples of consecutive failures. The first success after DOWN sends one recovery alert. Failure counters reset on restart, so alerts can occur again once the threshold is reached. Switching to OFF or MISSING does not send a recovery alert. Maintenance can suppress these alerts as described below.
+
+### Allowed HTTP status classes
+
+Use `HTTP_ALLOW_2XX`, `HTTP_ALLOW_3XX`, `HTTP_ALLOW_4XX`, and `HTTP_ALLOW_5XX` for global defaults (`true`/`false`). Zone, record, and bulk editors provide an independent inherit/allow/fail selector for each class. API and SQLite field names are `http_allow_2xx`, `http_allow_3xx`, `http_allow_4xx`, and `http_allow_5xx`. The API accepts booleans or `null`; SQLite stores 0/1/NULL. Each setting inherits separately, and an explicit `false` overrides a parent `true`.
+
+For example, this patch rejects redirects, permits 4xx responses, and inherits the other two classes:
+
+```json
+{"http_allow_2xx": null, "http_allow_3xx": false, "http_allow_4xx": true, "http_allow_5xx": null}
+```
+
+An allowed 404 or 503 counts as a successful check and retains its actual status code in history. A rejected 200 counts as a failure and uses the normal retry/alert rules. Setting all four to `false` makes every HTTP response fail; it does not disable checking. Responses outside 200–599 do not count as success. Connection errors, timeouts, and TLS verification failures still fail regardless of these switches. Alert webhook delivery rules are unaffected.
+
+In `auto` mode, a disallowed HTTPS status triggers the HTTP fallback; an allowed HTTPS status completes the check immediately. For example, with 5xx allowed, HTTPS 503 is UP and HTTP is not attempted. Select `https` to require the HTTPS attempt itself to pass.
+
+Existing databases gain four nullable columns on both zone and record tables at startup, preserving settings and the previous default behavior. Saving a change to a target's effective status policy restarts its check and resets its in-memory history and failure count so old results cannot overwrite the new policy. Changes that leave the effective policy unchanged preserve its history. Last-alert timestamps remain stored. Record tooltips show the effective allowed classes.
 
 ### Last alert and maintenance
 
@@ -195,7 +215,7 @@ Domain and record hover text shows configured tips. Record tooltips also include
 | `POST /api/refresh` | Rescan zone files immediately; send `{}` |
 | `GET /healthz` | Process health, last scan time, and scan-error count |
 
-Mutation requests require `Content-Type: application/json`. Invalid values return 400, unknown IDs return 404, and duplicate record/IP pairs return 409. Timing fields, protocol, `https_insecure`, and `maintenance` accept JSON `null` for inheritance. Record `enabled` accepts 0/1/null; zone `enabled` accepts only 0/1. Zone and record `maintenance` accept `true`/`false`/`null`. `alerted_at` cannot be edited through the API.
+Mutation requests require `Content-Type: application/json`. Invalid values return 400, unknown IDs return 404, and duplicate record/IP pairs return 409. Timing fields, protocol, `https_insecure`, the four `http_allow_*` fields, and `maintenance` accept JSON `null` for inheritance. Record `enabled` accepts 0/1/null; zone `enabled` accepts only 0/1. Zone and record `https_insecure`, `http_allow_*`, and `maintenance` accept `true`/`false`/`null`. `alerted_at` cannot be edited through the API.
 
 ```json
 {"operations":[

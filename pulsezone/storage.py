@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from .config import validate_patch
+from .config import BOOLEAN_SETTINGS, validate_patch
 
 
 def quote(name: str) -> str:
@@ -15,9 +15,7 @@ SETTINGS_SQL = """
     retry INTEGER CHECK(retry >= 1), retry_delay REAL CHECK(retry_delay > 0),
     description TEXT NOT NULL DEFAULT '', tip TEXT NOT NULL DEFAULT '',
     protocol TEXT CHECK(protocol IN ('auto', 'http', 'https')),
-    https_insecure INTEGER CHECK(https_insecure IN (0,1)),
-    maintenance INTEGER CHECK(maintenance IN (0,1))
-"""
+""" + ",\n".join(name + " INTEGER CHECK(" + name + " IN (0,1))" for name in BOOLEAN_SETTINGS)
 
 RECORD_SQL = """ (
     id INTEGER PRIMARY KEY, record TEXT NOT NULL, ip TEXT NOT NULL,
@@ -55,8 +53,7 @@ class Store:
         rebuild = []
         for table in tables:
             columns = {row["name"]: row for row in self.db.execute("PRAGMA table_info(" + quote(table) + ")")}
-            additions = {"https_insecure": "INTEGER CHECK(https_insecure IN (0,1))",
-                         "maintenance": "INTEGER CHECK(maintenance IN (0,1))"}
+            additions = {name: "INTEGER CHECK(" + name + " IN (0,1))" for name in BOOLEAN_SETTINGS}
             if table != "zones":
                 additions["alerted_at"] = "TEXT"
                 old = columns.get("maintenance")
@@ -89,7 +86,7 @@ class Store:
     @staticmethod
     def _settings(row) -> Dict[str, Any]:
         result = dict(row)
-        for key in ("https_insecure", "maintenance"):
+        for key in BOOLEAN_SETTINGS:
             if result.get(key) is not None:
                 result[key] = bool(result[key])
         return result

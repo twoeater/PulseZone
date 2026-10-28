@@ -3,7 +3,7 @@ import socket
 import ssl
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import aiohttp
 
@@ -28,8 +28,9 @@ class Probe:
         self.ports = ports or {"http": 80, "https": 443}
 
     async def check(self, host: str, ip: str, protocol: str, timeout: float,
-                    https_insecure: bool = False) -> Result:
+                    https_insecure: bool = False, allowed_status_classes: Optional[Iterable[int]] = None) -> Result:
         protocols = ("https", "http") if protocol == "auto" else (protocol,)
+        allowed = frozenset((2, 3) if allowed_status_classes is None else allowed_status_classes)
         attempts = []
         start = time.monotonic()
         # Connecting to the literal row IP also pins numeric HTTP hostnames.
@@ -53,8 +54,8 @@ class Probe:
                                            allow_redirects=False,
                                            timeout=aiohttp.ClientTimeout(total=timeout, ceil_threshold=float("inf"))) as response:
                         status = response.status
-                        if not 200 <= status <= 399:
-                            error = "HTTP " + str(status)
+                        if not (200 <= status < 600 and status // 100 in allowed):
+                            error = "HTTP {} (허용되지 않은 응답)".format(status)
                         response.close()
                 except asyncio.TimeoutError:
                     error = "타임아웃 ({}초)".format(timeout)

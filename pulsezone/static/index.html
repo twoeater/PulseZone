@@ -35,7 +35,21 @@
   <dialog id="bulk-editor">
     <div class="dialog-head"><h2>선택 항목 일괄 설정</h2><button id="close-bulk">닫기</button></div>
     <p>선택한 도메인과 레코드에 동일한 값을 적용합니다. 도메인 off는 하위 전체를 중지합니다.</p>
-    <form id="bulk-form"><label>설정 항목<select id="bulk-field"><option value="interval">interval</option><option value="timeout">timeout</option><option value="retry">retry</option><option value="retry_delay">retry_delay</option><option value="enabled">on/off</option><option value="protocol">protocol</option><option id="bulk-https-insecure" value="https_insecure" disabled>https_insecure · HTTPS 인증서 검증 생략</option><option id="bulk-maintenance" value="maintenance" disabled>maintenance · 같은 날 중복 알림 생략</option></select></label><label>적용할 값<span id="bulk-value"></span></label><p id="bulk-error" role="alert"></p><button type="submit" class="primary">선택 항목에 저장</button></form>
+    <form id="bulk-form">
+      <label>설정 항목<select id="bulk-field">
+        <option value="interval">interval</option><option value="timeout">timeout</option>
+        <option value="retry">retry</option><option value="retry_delay">retry_delay</option>
+        <option value="enabled">on/off</option><option value="protocol">protocol</option>
+        <option id="bulk-https-insecure" value="https_insecure" disabled>https_insecure · HTTPS 인증서 검증 생략</option>
+        <option id="bulk-http_allow_2xx" value="http_allow_2xx" disabled>HTTP 2xx 허용</option>
+        <option id="bulk-http_allow_3xx" value="http_allow_3xx" disabled>HTTP 3xx 허용</option>
+        <option id="bulk-http_allow_4xx" value="http_allow_4xx" disabled>HTTP 4xx 허용</option>
+        <option id="bulk-http_allow_5xx" value="http_allow_5xx" disabled>HTTP 5xx 허용</option>
+        <option id="bulk-maintenance" value="maintenance" disabled>maintenance · 같은 날 중복 알림 생략</option>
+      </select></label>
+      <label>적용할 값<span id="bulk-value"></span></label><p id="bulk-error" role="alert"></p>
+      <button type="submit" class="primary">선택 항목에 저장</button>
+    </form>
   </dialog>
 </body>
 </html>

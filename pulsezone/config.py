@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 
 
 TIMINGS = ("interval", "timeout", "retry", "retry_delay")
-COMMON = set(TIMINGS) | {"enabled", "description", "tip", "protocol", "https_insecure", "maintenance"}
+HTTP_STATUS_SETTINGS = ("http_allow_2xx", "http_allow_3xx", "http_allow_4xx", "http_allow_5xx")
+BOOLEAN_SETTINGS = ("https_insecure", "maintenance") + HTTP_STATUS_SETTINGS
+COMMON = set(TIMINGS + BOOLEAN_SETTINGS) | {"enabled", "description", "tip", "protocol"}
 
 
 def positive(value: Any, name: str, integer: bool = False) -> Any:
@@ -65,7 +67,7 @@ def validate_patch(data: Any, is_zone: bool = False) -> Dict[str, Any]:
         elif name == "protocol":
             if value not in (None, "auto", "http", "https"):
                 raise ValueError("protocol은 auto/http/https/null 중 하나입니다")
-        elif name in ("https_insecure", "maintenance"):
+        elif name in BOOLEAN_SETTINGS:
             if value is not None and type(value) is not bool:
                 raise ValueError(name + "는 true/false/null 중 하나입니다")
         elif name in ("domain", "record"):
@@ -103,6 +105,10 @@ class Config:
     ntfy_token: str = ""
     https_insecure: bool = False
     maintenance: bool = False
+    http_allow_2xx: bool = True
+    http_allow_3xx: bool = True
+    http_allow_4xx: bool = False
+    http_allow_5xx: bool = False
 
     @classmethod
     def from_env(cls, env_file: str = ".env") -> "Config":
@@ -122,8 +128,8 @@ class Config:
         cfg.web_host = env.get("WEB_HOST", cfg.web_host)
         cfg.protocol = env.get("CHECK_PROTOCOL", "auto")
         validate_patch({"protocol": cfg.protocol})
-        for attr in ("https_insecure", "maintenance"):
-            value = env.get(attr.upper(), "false").strip().lower()
+        for attr in BOOLEAN_SETTINGS:
+            value = env.get(attr.upper(), str(getattr(cfg, attr))).strip().lower()
             if value not in ("true", "false"):
                 raise ValueError(attr.upper() + "는 true 또는 false여야 합니다")
             setattr(cfg, attr, value == "true")
@@ -138,7 +144,7 @@ class Config:
         return cfg
 
     def defaults(self) -> Dict[str, Any]:
-        return {key: getattr(self, key) for key in TIMINGS + ("protocol", "https_insecure", "maintenance")}
+        return {key: getattr(self, key) for key in TIMINGS + ("protocol",) + BOOLEAN_SETTINGS}
 
 
 def effective(cfg: Config, zone: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:

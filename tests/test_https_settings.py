@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from pulsezone.config import Config, effective, validate_patch
+from pulsezone.config import HTTP_STATUS_SETTINGS, Config, effective, validate_patch
 from pulsezone.storage import Store
 
 
@@ -79,8 +79,9 @@ def test_existing_database_migration_preserves_settings_and_is_idempotent(tmp_pa
         original_record = dict(db.execute('SELECT * FROM "zone:team/db.example.test"').fetchone())
     store = Store(path)
     try:
-        assert store.zone(1) == dict(original_zone, https_insecure=None, maintenance=None)
-        assert store.records(1) == [dict(original_record, https_insecure=None, maintenance=None, alerted_at=None)]
+        inherited_statuses = dict.fromkeys(HTTP_STATUS_SETTINGS)
+        assert store.zone(1) == dict(original_zone, https_insecure=None, maintenance=None, **inherited_statuses)
+        assert store.records(1) == [dict(original_record, https_insecure=None, maintenance=None, alerted_at=None, **inherited_statuses)]
         store.update_zone(1, {"https_insecure": True})
         store.update_record(1, 7, {"https_insecure": False})
         assert store.zone(1)["https_insecure"] is True
@@ -91,6 +92,10 @@ def test_existing_database_migration_preserves_settings_and_is_idempotent(tmp_pa
         assert store.zone(1)["https_insecure"] is True
         store.bulk([{"zone_id": 1, "record_id": 7, "patch": {"https_insecure": None}}])
         assert store.records(1)[0]["https_insecure"] is None
+        store.update_zone(1, dict.fromkeys(HTTP_STATUS_SETTINGS, False))
+        store.update_record(1, 7, dict.fromkeys(HTTP_STATUS_SETTINGS, True))
+        assert all(store.zone(1)[name] is False for name in HTTP_STATUS_SETTINGS)
+        assert all(store.records(1)[0][name] is True for name in HTTP_STATUS_SETTINGS)
         snapshot = store.snapshot()
         schema_version = store.db.execute("PRAGMA schema_version").fetchone()[0]
     finally:

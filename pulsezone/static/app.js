@@ -48,7 +48,10 @@ try {
   }
 } catch (_) {}
 const labels={display_name:'표시 이름',domain:'접속 도메인',record:'레코드 (@ = apex / 빈 값 = IP 직접)',ip:'IPv4',alias:'레코드 표시 이름',interval:'interval · 초',timeout:'timeout · 초',retry:'retry · 실패 횟수',retry_delay:'retry_delay · 초',enabled:'on/off',protocol:'프로토콜',https_insecure:'HTTPS 인증서 검증 생략 (https_insecure)',maintenance:'maintenance · 같은 날 중복 알림 생략',description:'설명',tip:'마우스오버 tip'};
-const inherited=['interval','timeout','retry','retry_delay','protocol','https_insecure','maintenance'];
+const statusClasses=['2xx','3xx','4xx','5xx'];
+const statusSettings=statusClasses.map(group=>`http_allow_${group}`);
+for(const [i,key] of statusSettings.entries())labels[key]=`HTTP ${statusClasses[i]} 허용`;
+const inherited=['interval','timeout','retry','retry_delay','protocol','https_insecure',...statusSettings,'maintenance'];
 async function api(path, method='GET', body) {
   const options={method,cache:'no-store'};
   if(body!==undefined){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(body);}
@@ -129,6 +132,7 @@ function render(){
         const key=`${zone.id}:${row.id}`, name=make('td',undefined,'record-cell mono');
         const label=row.alias||row.record||'IP 직접';const link=button(`${label} (${row.ip})`,()=>openRecords(zone.id,row.id));
         link.title=[row.tip,`요청 호스트: ${row.effective.host}`,`적용: interval=${row.effective.interval}, timeout=${row.effective.timeout}, retry=${row.effective.retry}, delay=${row.effective.retry_delay}, ${row.effective.protocol}, https_insecure=${row.effective.https_insecure??false}`].filter(Boolean).join('\n');
+        link.title+=`\n허용 HTTP 응답: ${statusClasses.filter((group,i)=>row.effective[statusSettings[i]]??(i<2)).join(', ')||'없음'}`;
         name.append(selection(`r:${key}`,`${label} ${row.ip} 레코드 선택`),document.createTextNode(' '),link);
         if(row.source==='manual')name.append(make('span','수동','badge'));
         const state=make('td',undefined,'state'), history=make('div',undefined,'history'), historyCell=make('td');historyCell.append(history);
@@ -140,6 +144,7 @@ function render(){
   }
   if(!fragment.childNodes.length)fragment.append(make('div','표시할 존이 없습니다. ZONE_PATH와 스캔 오류를 확인하세요.','empty'));
   $('bulk-https-insecure').disabled=!('https_insecure' in catalog.defaults);
+  for(const key of statusSettings)$(`bulk-${key}`).disabled=!(key in catalog.defaults);
   $('groups').replaceChildren(fragment);updateSelection();updateFoldButton();renderStatus();
 }
 function statusCounts(totals){
@@ -181,13 +186,13 @@ async function poll(){if(polling)return;polling=true;try{latest=await api('/api/
 function zoneById(id){return catalog.zones.find(z=>z.id===id);}
 function createInput(key,value,zoneMode){
   let input;
-  if(key==='enabled'||key==='protocol'||key==='https_insecure'||key==='maintenance'){
+  if(key==='enabled'||key==='protocol'||key==='https_insecure'||key==='maintenance'||statusSettings.includes(key)){
     input=make('select');const choices={
       enabled:[['','상속 (도메인 설정)'],['1','on'],['0','off']],
       protocol:[['','상속'],['auto','HTTPS 우선 / HTTP 대체'],['http','HTTP'],['https','HTTPS']],
       https_insecure:[['','상속'],['false','false · 인증서 검증'],['true','true · 검증 생략 (curl -k)']],
       maintenance:[['','상속'],['false','false · 일반 알림'],['true','true · 같은 날 중복 알림 생략']],
-    }[key];
+    }[key]||[['','상속'],['true','true · 정상으로 허용'],['false','false · 실패로 처리']];
     for(const [val,text] of choices){if(zoneMode&&key==='enabled'&&val==='')continue;const option=make('option',text);option.value=val;input.append(option);}
   }else if(key==='description'||key==='tip'){input=make('textarea');input.maxLength=4000;}
   else {input=make('input');input.type=inherited.includes(key)?'number':'text';if(input.type==='number'){input.min=key==='retry'?'1':'0.001';input.step=key==='retry'?'1':'any';input.placeholder='비워두면 상속';}else input.maxLength=4000;}
@@ -199,6 +204,7 @@ function fields(item,zoneMode,zone){
   for(const key of keys){
     if(key==='https_insecure'&&!('https_insecure' in catalog.defaults))continue;
     if(key==='maintenance'&&!('maintenance' in catalog.defaults))continue;
+    if(statusSettings.includes(key)&&!(key in catalog.defaults))continue;
     const label=make('label',labels[key]);const input=createInput(key,item[key],zoneMode);input.id=`edit-${key}`;if(key==='domain'||key==='ip')input.required=true;label.append(input);
     if(inherited.includes(key)){const parent=zoneMode?catalog.defaults[key]:zone.effective[key];label.append(make('small',`상속값: ${parent} / 적용값: ${item[key]??parent}`));}
     if(key==='enabled'&&!zoneMode)label.append(make('small',`상위 도메인: ${zone.enabled?'on':'off (모든 레코드 중지)'}`));
@@ -223,7 +229,7 @@ function openRecords(id,rowId=null){
   for(const r of zone.records){const line=make('div',undefined,`pick-row ${r.id===rowId?'active':''}`);line.append(button(`${r.alias||r.record||'IP 직접'} (${r.ip})`,()=>openRecords(id,r.id)),make('small',`${r.source==='manual'?'수동':'파일'}${r.effective.present?'':' · 원본 소실'}`));picker.append(line);}
   fields(row,false,zone);showEditor();
 }
-function settingValue(key,value){return value===''?null:key==='protocol'?value:(key==='https_insecure'||key==='maintenance')?value==='true':Number(value);}
+function settingValue(key,value){return value===''?null:key==='protocol'?value:(key==='https_insecure'||key==='maintenance'||statusSettings.includes(key))?value==='true':Number(value);}
 function formValue(form){const patch={};for(const [key,value] of new FormData(form)){if(inherited.includes(key)||key==='enabled'||key==='maintenance'){patch[key]=settingValue(key,value);}else patch[key]=value;}return patch;}
 $('edit-form').addEventListener('submit',async event=>{
   event.preventDefault();const submit=event.submitter;submit.disabled=true;

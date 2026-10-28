@@ -136,13 +136,14 @@ def test_https_insecure_is_per_request_and_keeps_tls_host_and_status_checks(tmp_
     host = "wrong.example.test" if failure == "hostname" else "monitor.example.test"
 
     async def run():
-        calls, response_status = [], [200]
+        calls, response_status, http_status = [], [200], [None]
 
         async def handler(request):
             calls.append((request.secure, request.host))
             if response_status[0] == -1:
                 await asyncio.sleep(.1)
-            return web.Response(status=max(response_status[0], 200))
+            status = http_status[0] if not request.secure and http_status[0] is not None else response_status[0]
+            return web.Response(status=max(status, 200))
 
         http_app, https_app = web.Application(), web.Application()
         http_app.router.add_get("/", handler)
@@ -168,8 +169,21 @@ def test_https_insecure_is_per_request_and_keeps_tls_host_and_status_checks(tmp_
             response_status[0] = 503
             status_failure = await probe.check(host, "127.0.0.1", "https", 1, True)
             assert not status_failure.ok and status_failure.status == 503
+            permitted = await probe.check(host, "127.0.0.1", "auto", 1, True, (2, 3, 5))
+            assert permitted.ok and permitted.status == 503 and permitted.protocol == "https"
+            assert len(permitted.attempts) == 1
+            http_status[0] = 200
+            fallback = await probe.check(host, "127.0.0.1", "auto", 1, True, (2, 3))
+            assert fallback.ok and fallback.protocol == "http"
+            assert [attempt["status"] for attempt in fallback.attempts] == [503, 200]
+            rejected = await probe.check(host, "127.0.0.1", "auto", 1, True, ())
+            assert not rejected.ok and len(rejected.attempts) == 2
+            strict = await probe.check(host, "127.0.0.1", "https", 1, False, (2, 3, 4, 5))
+            assert not strict.ok and "인증서" in strict.error
+            wrong_ip = await probe.check(host, "127.0.0.2", "https", .05, True, (2, 3, 4, 5))
+            assert not wrong_ip.ok
             response_status[0] = -1
-            timeout = await probe.check(host, "127.0.0.1", "https", .02, True)
+            timeout = await probe.check(host, "127.0.0.1", "https", .02, True, (2, 3, 4, 5))
             assert not timeout.ok and "타임아웃" in timeout.error
     asyncio.run(run())
 
@@ -313,7 +327,7 @@ def test_https_insecure_api_changes_inheritance_and_invalidates_inflight_result(
                 self.started = asyncio.Event()
                 self.cancelled = False
 
-            async def check(self, host, ip, protocol, timeout, https_insecure=False):
+            async def check(self, host, ip, protocol, timeout, https_insecure=False, allowed_status_classes=None):
                 self.calls.append(https_insecure)
                 if len(self.calls) == 1:
                     self.started.set()

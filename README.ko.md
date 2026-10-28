@@ -48,6 +48,10 @@ Copy-Item .env.example .env
 | `RETRY_DELAY` | `10` | 실패 후 다음 점검까지 대기, 초 |
 | `CHECK_PROTOCOL` | `auto` | `auto`, `http`, `https` |
 | `HTTPS_INSECURE` | `false` | `true`이면 curl `-k`처럼 HTTPS 인증서 검증 생략. `true` / `false` |
+| `HTTP_ALLOW_2XX` | `true` | HTTP 200~299를 정상으로 허용 |
+| `HTTP_ALLOW_3XX` | `true` | HTTP 300~399를 정상으로 허용 |
+| `HTTP_ALLOW_4XX` | `false` | HTTP 400~499를 정상으로 허용 |
+| `HTTP_ALLOW_5XX` | `false` | HTTP 500~599를 정상으로 허용 |
 | `MAINTENANCE` | `false` | 전체 존·레코드의 당일 중복 알림 생략 기본값. `true` / `false` |
 | `DATABASE_PATH` | `./data/pulsezone.sqlite3` | SQLite 설정 파일 |
 | `WEB_HOST` | `0.0.0.0` | 웹 바인딩 주소 |
@@ -75,7 +79,7 @@ Copy-Item .env.example .env
 - `$TTL`, 생략된 소유자명, 복수 IP, 괄호·주석·절대 이름, `$GENERATE`를 처리합니다. SOA/NS 없는 A 조각과 TTL 없는 조각도 읽으며 생략된 기본 TTL은 파싱에만 쓰는 300초입니다.
 - `$INCLUDE`는 **포함하는 파일의 디렉터리 기준**으로 해석하고 존 루트 안에 있어야 합니다. origin·소유자·TTL 상속 및 복원을 지원합니다. 순환 참조와 32단계 이상 중첩은 오류로 표시합니다.
 - UTF-8/UTF-8 BOM 파일을 지원합니다. 확장자와 무관하게 일반 파일을 대상으로 하므로, include 조각도 독립 파일로 해석 가능한 경우 별도 등록됩니다. 심볼릭 링크는 루트 스캔에서 제외합니다.
-- 설정 우선순위는 **레코드 → 도메인 → 환경변수**입니다. NULL/빈 시간·프로토콜·`https_insecure`·`maintenance` 필드는 상속입니다. 단, **도메인 off는 모든 하위 레코드를 중지**합니다.
+- 설정 우선순위는 **레코드 → 도메인 → 환경변수**입니다. NULL/빈 시간·프로토콜·`https_insecure`·`http_allow_2xx`/`3xx`/`4xx`/`5xx`·`maintenance` 필드는 상속입니다. 단, **도메인 off는 모든 하위 레코드를 중지**합니다.
 
 ### 다시 읽을 때
 
@@ -89,15 +93,31 @@ Copy-Item .env.example .env
 
 각 행의 IP에 직접 연결하며 Host와 HTTPS SNI는 실제 요청 호스트를 사용합니다. 기본적으로 인증서의 체인·호스트·유효기간을 검증합니다. 서로 다른 IP 사이에서 연결을 공유하지 않습니다. 시스템 HTTP 프록시 환경변수를 사용하지 않습니다.
 
-`https_insecure=true`이면 curl `-k`처럼 인증서 검증을 생략합니다. 만료·자체 서명·도메인 불일치 인증서도 HTTPS 응답이 200~399이면 정상으로 처리합니다. HTTPS 암호화, Host/SNI와 IP 고정은 유지하며, 연결 실패·타임아웃·비정상 HTTP 상태는 계속 실패로 처리합니다. `auto`에서는 HTTPS 시도에 적용하고, HTTP 점검과 알림 웹훅의 TLS 설정에는 영향을 주지 않습니다.
+`https_insecure=true`이면 curl `-k`처럼 인증서 검증을 생략합니다. 만료·자체 서명·도메인 불일치 인증서도 HTTPS 응답이 허용한 상태코드 범위이면 정상으로 처리합니다. HTTPS 암호화, Host/SNI와 IP 고정은 유지하며, 연결 실패·타임아웃·허용하지 않은 HTTP 상태는 계속 실패로 처리합니다. `auto`에서는 HTTPS 시도에 적용하고, HTTP 점검과 알림 웹훅의 TLS 설정에는 영향을 주지 않습니다.
 
 환경변수 기본값은 `HTTPS_INSECURE=false`입니다. 웹의 도메인·레코드 편집 및 일괄 설정에서 `상속 / false (검증) / true (검증 생략)`을 선택할 수 있습니다. API는 `{"https_insecure": true}`, `false`, `null`을 받으며 `null`은 상속입니다. 기존 SQLite는 시작 시 새 컬럼을 NULL로 추가하고 기존 설정을 보존합니다. 웹 저장은 다음 점검에 즉시 반영되며, 환경변수 변경은 재시작 후 적용됩니다.
 
-`GET /`에서 **200~399를 정상**으로 보고 리다이렉트를 따라가지 않습니다. 응답 본문은 저장하지 않습니다. 기본 포트는 HTTP 80, HTTPS 443입니다. 임의 포트·경로 설정은 현재 제공하지 않습니다.
+`GET /`에서 **기본적으로 2xx·3xx는 정상, 4xx·5xx는 실패**로 판정하며 각 범위를 개별 설정할 수 있습니다. 리다이렉트를 따라가지 않고 응답 본문은 저장하지 않습니다. 기본 포트는 HTTP 80, HTTPS 443입니다. 임의 포트·경로 설정은 현재 제공하지 않습니다.
 
 `auto`는 HTTPS 실패 시 HTTP도 시도하며 한쪽이 정상이면 점검 1회 성공입니다. HTTPS가 실패했어도 HTTP가 정상이면 UP이므로, HTTPS 자체를 확인하려면 `https`를 선택하세요. TIMEOUT=10이면 auto의 총 요청 시간은 최대 약 20초입니다. 대기는 요청 완료 후 시작합니다.
 
 RETRY=10이면 10·20·30…번째 연속 실패에 장애 알림을 반복합니다. DOWN 이후 첫 성공에 복구 알림을 한 번 보냅니다. 재시작 시 장애 카운터도 초기화되므로 새 실패 횟수가 임계값에 도달하면 다시 알립니다. off/MISSING 전환은 복구 알림을 보내지 않습니다.
+
+### HTTP 상태코드별 허용 설정
+
+전역 기본값은 `HTTP_ALLOW_2XX`, `HTTP_ALLOW_3XX`, `HTTP_ALLOW_4XX`, `HTTP_ALLOW_5XX`에 `true/false`로 지정합니다. 도메인·레코드 편집과 일괄 설정에서 각 범위를 독립적으로 `상속 / true · 정상으로 허용 / false · 실패로 처리`할 수 있습니다. API와 SQLite 컬럼명은 `http_allow_2xx`, `http_allow_3xx`, `http_allow_4xx`, `http_allow_5xx`입니다. API는 boolean/null, SQLite는 0/1/NULL을 사용합니다. 항목마다 별도로 상속하며 명시적인 `false`는 상위의 `true`보다 우선합니다.
+
+예를 들어 다음 설정은 3xx를 실패, 4xx를 정상으로 처리하고 2xx·5xx는 상속합니다.
+
+```json
+{"http_allow_2xx": null, "http_allow_3xx": false, "http_allow_4xx": true, "http_allow_5xx": null}
+```
+
+허용한 404·503은 성공으로 계산하며 이력에는 실제 상태코드를 남깁니다. 차단한 200은 실패로 계산하고 기존 retry·알림 규칙을 적용합니다. 모두 `false`이면 모든 HTTP 응답이 실패하며, 점검을 중지하는 설정은 아닙니다. 200~599 밖의 응답은 정상으로 인정하지 않습니다. 연결 오류·타임아웃·TLS 검증 실패는 이 설정과 관계없이 실패입니다. 알림 웹훅의 전송 성공 판정에는 적용하지 않습니다.
+
+`auto`에서 HTTPS가 허용하지 않은 상태코드를 반환하면 HTTP도 시도합니다. 허용한 HTTPS 응답이면 즉시 성공으로 끝냅니다. 예를 들어 5xx 허용 시 HTTPS 503도 UP이며 HTTP로 넘어가지 않습니다. HTTPS 자체의 성공을 요구하려면 `https`를 선택하세요.
+
+기존 DB는 시작 시 존·레코드 테이블에 네 컬럼을 NULL로 추가하며 기존 설정과 기본 판정을 보존합니다. 실제 적용되는 허용 설정이 변경되면 해당 점검을 재시작하고 메모리 이력·실패 횟수를 초기화하여 이전 설정의 진행 중 결과가 새 상태를 덮어쓰지 않게 합니다. 실제 적용값이 같으면 이력은 유지합니다. 마지막 알림 시각은 보존합니다. 레코드 마우스오버에서 적용된 허용 범위를 확인할 수 있습니다.
 
 ### 마지막 알림과 maintenance
 
@@ -187,7 +207,7 @@ ALERT_NTFY_TOKEN=
 | `POST /api/refresh` | 즉시 파일 재스캔, 본문 `{}` |
 | `GET /healthz` | 프로세스 응답·마지막 스캔·스캔 오류 수 |
 
-수정 API는 `Content-Type: application/json`을 요구합니다. 잘못된 값은 400, 없는 ID는 404, 중복 레코드·IP는 409입니다. 시간·protocol은 JSON `null`로 상속을 지정할 수 있습니다. 레코드 enabled만 `null`을 허용하며 도메인은 0/1입니다. 존·레코드 `maintenance`는 `true/false/null`을 허용하고 `alerted_at` 수정은 거부합니다.
+수정 API는 `Content-Type: application/json`을 요구합니다. 잘못된 값은 400, 없는 ID는 404, 중복 레코드·IP는 409입니다. 시간·protocol·`https_insecure`·네 `http_allow_*` 항목·`maintenance`는 JSON `null`로 상속을 지정할 수 있습니다. 레코드 enabled만 `null`을 허용하며 도메인은 0/1입니다. 존·레코드 `https_insecure`·`http_allow_*`·`maintenance`는 `true/false/null`을 허용하고 `alerted_at` 수정은 거부합니다.
 
 ```json
 {"operations":[
